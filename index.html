@@ -15,6 +15,7 @@
       --bulls: #ce1141;
       --cubs: #0e3386;
       --hawks: #cf0a2c;
+      --bears: #c83803;
       --speed: 42s;
     }
     * { box-sizing: border-box; }
@@ -111,6 +112,7 @@
     .team-logo.bulls img { width: 44px; height: 44px; }
     .team-logo.cubs img { width: 44px; height: 44px; }
     .team-logo.hawks img { width: 46px; height: 38px; }
+    .team-logo.bears img { width: 46px; height: 38px; }
     .game-main { min-width: 0; flex: 1; }
     .team-name {
       font-size: 11px;
@@ -221,6 +223,11 @@
         key: "hawks", name: "CHICAGO BLACKHAWKS", league: "NHL", abbreviation: "CHI",
         path: "hockey/nhl", className: "hawks", code: "CHI",
         logo: "https://a.espncdn.com/i/teamlogos/nhl/500/chi.png"
+      },
+      {
+        key:"bears", name: "CHICAGO BEARS", league: "NFL", abbreviation: "CHI",
+        path: "football/nfl", className: "bears", code: "CHI",
+        logo: "https://a.espncdn.com/i/teamlogos/nfl/500/chi.png"
       }
     ];
     const API_ROOT = "https://site.api.espn.com/apis/site/v2/sports/";
@@ -280,6 +287,7 @@
       if (team.league === "NBA") return month >= 9 || month <= 5; // Oct–Jun
       if (team.league === "MLB") return month >= 2 && month <= 10; // Mar–Nov
       if (team.league === "NHL") return month >= 8 || month <= 5; // Sep–Jun
+      if (team.league === "NFL") return month >= 7 || month <= 2; // Aug-Feb
       return true;
     }
 

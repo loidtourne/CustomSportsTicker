@@ -356,24 +356,44 @@ async function fetchScoreboard(team) {
       if (!hasAny) sourceStatus.textContent = "No games returned by the feeds; try Refresh later.";
     }
 
-    async function refreshScores() {
-      refreshButton.disabled = true;
-      updated.textContent = "Updating…";
-      sourceStatus.textContent = "Checking ESPN score feeds…";
-      try {
-        const results = await Promise.allSettled(TEAMS.map(fetchScoreboard));
-        const cards = results.map((result, index) => {
-          if (result.status !== "fulfilled") {
-            console.warn(`Could not load ${TEAMS[index].name}`, result.reason);
-            return null;
-          }
-            } catch (error) {
+
+async function refreshScores() {
+  refreshButton.disabled = true;
+  updated.textContent = "Updating…";
+  sourceStatus.textContent = "Checking ESPN score feeds…";
+
+  try {
+    const results = await Promise.allSettled(
+      TEAMS.map(fetchScoreboard)
+    );
+
+    const cards = results.map((result, index) => {
+      if (result.status !== "fulfilled") {
+        console.warn(
+          `Could not load ${TEAMS[index].name}`,
+          result.reason
+        );
+        return null;
+      }
+
+      // Keep the rest of your existing map callback code here.
+      // This section should process successful results.
+    });
+
+    // Keep the rest of your existing try-block code here.
+    // This section should render cards and update the status.
+
+  } catch (error) {
     console.error("Error refreshing scores:", error);
 
     sourceStatus.textContent = `Error: ${error.message}`;
     updated.textContent = "Unavailable";
+
+  } finally {
+    refreshButton.disabled = false;
   }
 }
+
           const events = result.value.events || [];
           return chooseEvent(TEAMS[index], events);
         });

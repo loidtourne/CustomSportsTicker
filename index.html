@@ -222,6 +222,9 @@
     <nav class="league-tabs" aria-label="Ticker views">
       <button class="tab-button active" id="chicagoTab" type="button" aria-pressed="true"><span class="brand-mark" aria-hidden="true"></span> Chicago Sports</button>
       <button class="tab-button" id="mlbTab" type="button" aria-pressed="false">MLB</button>
+      <button class="tab-button" id="nbaTab" type="button" aria-pressed="false">NBA</button>
+      <button class="tab-button" id="nhlTab" type="button" aria-pressed="false">NHL</button>
+      <button class="tab-button" id="nflTab" type="button" aria-pressed="false">NFL</button>
     </nav>
     <section class="ticker-viewport" aria-live="polite" aria-label="Team scores">
       <div class="ticker-track" id="tickerTrack">
@@ -273,6 +276,16 @@
     const layoutButton = document.getElementById("layoutButton");
     const chicagoTab = document.getElementById("chicagoTab");
     const mlbTab = document.getElementById("mlbTab");
+    const nbaTab = document.getElementById("nbaTab");
+    const nhlTab = document.getElementById("nhlTab");
+    const nflTab = document.getElementById("nflTab");
+    const leagueTabs = { chicago: chicagoTab, mlb: mlbTab, nba: nbaTab, nhl: nhlTab, nfl: nflTab };
+    const LEAGUES = {
+      mlb: { label: "MLB", path: "baseball/mlb", sport: "baseball" },
+      nba: { label: "NBA", path: "basketball/nba", sport: "basketball" },
+      nhl: { label: "NHL", path: "hockey/nhl", sport: "hockey" },
+      nfl: { label: "NFL", path: "football/nfl", sport: "football" }
+    };
     let activeView = "chicago";
     let staticView = false;
     let refreshTimer = null;
@@ -506,7 +519,7 @@
       }
     }
 
-    function mlbGameCardHTML(event, displayLabel = "") {
+    function leagueGameCardHTML(event, league, displayLabel = "") {
       const competition = event.competitions?.[0];
       const competitors = competition?.competitors || [];
       const away = competitors.find(team => team.homeAway === "away") || competitors[0];
@@ -520,8 +533,9 @@
       const homeName = home.team?.abbreviation || home.team?.shortDisplayName || home.team?.displayName || "Home";
       const awayScore = away.score?.displayValue ?? away.score ?? "—";
       const homeScore = home.score?.displayValue ?? home.score ?? "—";
-      const awayLogo = away.team?.logo || "https://a.espncdn.com/i/teamlogos/mlb/500/scoreboard.png";
-      const homeLogo = home.team?.logo || "https://a.espncdn.com/i/teamlogos/mlb/500/scoreboard.png";
+      const fallbackLogo = `https://a.espncdn.com/i/teamlogos/${league.sport}/500/scoreboard.png`;
+      const awayLogo = away.team?.logo || fallbackLogo;
+      const homeLogo = home.team?.logo || fallbackLogo;
       const date = event.date || competition?.date;
       const detail = live ? `LIVE · ${statusType.shortDetail || statusType.detail || "In progress"}`
         : completed ? `FINAL${statusType.shortDetail ? ` · ${statusType.shortDetail}` : ""}`
@@ -531,7 +545,7 @@
       return `<article class="game-card league-game-card">
         <div class="team-logo"><img src="${escapeText(awayLogo)}" alt="${escapeText(awayName)} logo" loading="lazy"></div>
         <div class="game-main">
-          <div class="team-name">${escapeText(displayLabel || `MLB · ${event.name || "Major League Baseball"}`)}</div>
+          <div class="team-name">${escapeText(displayLabel || `${league.label} · ${event.name || league.label}`)}</div>
           <div class="matchup">${escapeText(awayName)} @ ${escapeText(homeName)}</div>
           <div class="detail ${statusClass}">${escapeText(detail)}</div>
         </div>
@@ -540,49 +554,54 @@
       </article>`;
     }
 
-    async function refreshMLBScores() {
+    async function refreshLeagueScores(leagueKey) {
+      const league = LEAGUES[leagueKey];
+      if (!league) return;
       refreshButton.disabled = true;
-      updated.textContent = "Updating MLB…";
-      sourceStatus.textContent = "Checking ESPN MLB scoreboard…";
+      updated.textContent = `Updating ${league.label}…`;
+      sourceStatus.textContent = `Checking ESPN ${league.label} scoreboard…`;
       try {
         const now = new Date();
         const today = dateKey(now);
-        const response = await fetch(`${API_ROOT}baseball/mlb/scoreboard?dates=${today}`, { cache: "no-store" });
-        if (!response.ok) throw new Error(`MLB scoreboard returned HTTP ${response.status}`);
+        const response = await fetch(`${API_ROOT}${league.path}/scoreboard?dates=${today}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`${league.label} scoreboard returned HTTP ${response.status}`);
         const data = await response.json();
         const events = data.events || [];
-        let html = events.map(event => mlbGameCardHTML(event)).filter(Boolean).join("");
-        let statusMessage = `MLB · ${events.length} game(s) on today's scoreboard · ESPN data feed`;
+        let html = events.map(event => leagueGameCardHTML(event, league)).filter(Boolean).join("");
+        let statusMessage = `${league.label} · ${events.length} game(s) on today's scoreboard · ESPN data feed`;
 
-        // If there are no games today, walk backward one day at a time (ESPN's
-        // scoreboard can reject date ranges) until we find the most recent
-        // date with completed games.
+        // ESPN date-range requests can return HTTP 400, so check previous dates individually.
+        // If today's scoreboard is empty, show all completed games from the most recent date found.
         if (!html) {
           for (let daysBack = 1; daysBack <= 14; daysBack++) {
             const pastDate = addDays(now, -daysBack);
             const pastKey = dateKey(pastDate);
-            const pastResponse = await fetch(`${API_ROOT}baseball/mlb/scoreboard?dates=${pastKey}`, { cache: "no-store" });
-            if (!pastResponse.ok) continue;
-            const pastData = await pastResponse.json();
-            const pastEvents = (pastData.events || []).filter(event => {
-              const competition = event.competitions?.[0];
-              const status = event.status?.type || competition?.status?.type || {};
-              return String(status.state || "").toLowerCase() === "post" || status.completed === true;
-            });
-            if (pastEvents.length) {
-              const playedDate = pastDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-              html = pastEvents.map(event => mlbGameCardHTML(event, `MLB · LAST PLAYED · ${playedDate}`)).filter(Boolean).join("");
-              if (html) {
-                statusMessage = `No MLB games today · Showing ${pastEvents.length} game(s) last played ${playedDate} · ESPN data feed`;
-                break;
+            try {
+              const pastResponse = await fetch(`${API_ROOT}${league.path}/scoreboard?dates=${pastKey}`, { cache: "no-store" });
+              if (!pastResponse.ok) continue;
+              const pastData = await pastResponse.json();
+              const pastEvents = (pastData.events || []).filter(event => {
+                const competition = event.competitions?.[0];
+                const status = event.status?.type || competition?.status?.type || {};
+                return String(status.state || "").toLowerCase() === "post" || status.completed === true;
+              });
+              if (pastEvents.length) {
+                const playedDate = pastDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+                html = pastEvents.map(event => leagueGameCardHTML(event, league, `${league.label} · LAST PLAYED · ${playedDate}`)).filter(Boolean).join("");
+                if (html) {
+                  statusMessage = `No ${league.label} games today · Showing ${pastEvents.length} game(s) last played ${playedDate} · ESPN data feed`;
+                  break;
+                }
               }
+            } catch (pastError) {
+              console.warn(`Could not check previous ${league.label} scoreboard for ${pastKey}:`, pastError);
             }
           }
         }
 
         if (!html) {
-          html = `<article class="game-card empty-league-card"><div class="game-main"><div class="team-name">MLB · ALL TEAMS</div><div class="matchup">No MLB games scheduled today</div><div class="detail">No completed MLB games found in the last 14 days.</div></div></article>`;
-          sourceStatus.textContent = "No MLB games today, and no completed games were found in the last 14 days.";
+          html = `<article class="game-card empty-league-card"><div class="game-main"><div class="team-name">${league.label} · ALL TEAMS</div><div class="matchup">No ${league.label} games scheduled today</div><div class="detail">No completed ${league.label} games found in the last 14 days.</div></div></article>`;
+          sourceStatus.textContent = `No ${league.label} games today, and no completed games were found in the last 14 days.`;
         } else {
           sourceStatus.textContent = statusMessage;
         }
@@ -591,10 +610,10 @@
         tickerShell.classList.toggle("static", staticView);
         updated.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
       } catch (error) {
-        console.error("Error refreshing MLB scores:", error);
-        primary.innerHTML = `<article class="game-card empty-league-card"><div class="game-main"><div class="team-name">MLB · ALL TEAMS</div><div class="matchup">Unable to load MLB scores</div><div class="detail">${escapeText(error.message)} · Try Refresh.</div></div></article>`;
+        console.error(`Error refreshing ${league.label} scores:`, error);
+        primary.innerHTML = `<article class="game-card empty-league-card"><div class="game-main"><div class="team-name">${league.label} · ALL TEAMS</div><div class="matchup">Unable to load ${league.label} scores</div><div class="detail">${escapeText(error.message)} · Try Refresh.</div></div></article>`;
         clone.innerHTML = primary.innerHTML;
-        sourceStatus.textContent = "Unable to load the ESPN MLB feed.";
+        sourceStatus.textContent = `Unable to load the ESPN ${league.label} feed.`;
         updated.textContent = "Update failed";
       } finally {
         refreshButton.disabled = false;
@@ -602,22 +621,24 @@
     }
 
     function refreshScores() {
-      if (activeView === "mlb") return refreshMLBScores();
-      return refreshChicagoScores();
+      if (activeView === "chicago") return refreshChicagoScores();
+      return refreshLeagueScores(activeView);
     }
 
     function setActiveView(view) {
       activeView = view;
-      chicagoTab.classList.toggle("active", view === "chicago");
-      mlbTab.classList.toggle("active", view === "mlb");
-      chicagoTab.setAttribute("aria-pressed", String(view === "chicago"));
-      mlbTab.setAttribute("aria-pressed", String(view === "mlb"));
-      tickerShell.setAttribute("aria-label", view === "mlb" ? "MLB league-wide scores" : "Chicago sports scores");
+      Object.entries(leagueTabs).forEach(([key, tab]) => {
+        tab.classList.toggle("active", key === view);
+        tab.setAttribute("aria-pressed", String(key === view));
+      });
+      const label = view === "chicago" ? "Chicago sports" : `${LEAGUES[view]?.label || view.toUpperCase()} league-wide`;
+      tickerShell.setAttribute("aria-label", `${label} scores`);
       refreshScores();
     }
 
-    chicagoTab.addEventListener("click", () => setActiveView("chicago"));
-    mlbTab.addEventListener("click", () => setActiveView("mlb"));
+    Object.entries(leagueTabs).forEach(([key, tab]) => {
+      tab.addEventListener("click", () => setActiveView(key));
+    });
     refreshButton.addEventListener("click", refreshScores);
     layoutButton.addEventListener("click", () => {
       staticView = !staticView;

@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Chicago Sports Ticker</title>
+  <style>
+    :root {
+      --bg: #191919;
+      --panel: #222;
+      --text: #f5f5f5;
+      --muted: #a8a8a8;
+      --line: #383838;
+      --bulls: #ce1141;
+      --cubs: #0e3386;
+      --hawks: #cf0a2c;
+      --speed: 42s;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .ticker-shell {
+      width: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .ticker-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #202020;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 800;
+      letter-spacing: .09em;
+      font-size: 12px;
+    }
+    .brand-mark {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      box-shadow: 0 0 10px #ef444477;
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    button {
+      color: var(--text);
+      background: #303030;
+      border: 1px solid #494949;
+      border-radius: 7px;
+      padding: 6px 9px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { background: #3a3a3a; }
+    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .ticker-viewport { overflow: hidden; position: relative; }
+    .ticker-track {
+      display: flex;
+      width: max-content;
+      animation: scroll var(--speed) linear infinite;
+      will-change: transform;
+    }
+    .ticker-viewport:hover .ticker-track,
+    .ticker-viewport:focus-within .ticker-track { animation-play-state: paused; }
+    .ticker-group { display: flex; flex: none; }
+    .game-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 290px;
+      max-width: 390px;
+      padding: 14px 18px;
+      border-right: 1px solid var(--line);
+    }
+    .team-logo {
+      display: grid;
+      place-items: center;
+      flex: 0 0 46px;
+      width: 46px;
+      height: 46px;
+      overflow: hidden;
+      border-radius: 10px;
+      background: transparent;
+    }
+    .team-logo img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .team-logo.bulls img { width: 44px; height: 44px; }
+    .team-logo.cubs img { width: 44px; height: 44px; }
+    .team-logo.hawks img { width: 46px; height: 38px; }
+    .game-main { min-width: 0; flex: 1; }
+    .team-name {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 800;
+      letter-spacing: .08em;
+      margin-bottom: 3px;
+      white-space: nowrap;
+    }
+    .matchup {
+      font-weight: 750;
+      font-size: 15px;
+      white-space: nowrap;
+    }
+    .detail {
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 3px;
+      white-space: nowrap;
+    }
+    .score {
+      min-width: 48px;
+      text-align: right;
+      font-size: 21px;
+      line-height: 1;
+      font-weight: 850;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .score small {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      margin-top: 6px;
+      color: var(--muted);
+    }
+    .ticker-bottom {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .status-live { color: #ff7777 !important; }
+    .status-final { color: #d6d6d6 !important; }
+    .status-upcoming { color: #9cc2ff !important; }
+    .status-error { color: #ffc078 !important; }
+    .ticker-shell.static .ticker-track { animation: none; width: 100%; }
+    .ticker-shell.static #tickerClone { display: none; }
+    .ticker-shell.static .ticker-group { flex-wrap: wrap; width: 100%; }
+    .ticker-shell.static .game-card { flex: 1 1 290px; }
+    @keyframes scroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+    @media (max-width: 520px) {
+      .ticker-top { padding: 9px 10px; }
+      .controls .updated { display: none; }
+      .game-card { min-width: 270px; padding: 12px; }
+      .ticker-bottom { padding: 7px 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ticker-track { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="ticker-shell" id="tickerShell" aria-label="Chicago sports scores">
+    <header class="ticker-top">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span> CHICAGO SPORTS</div>
+      <div class="controls">
+        <span class="updated" id="updated">Loading scores…</span>
+        <button id="layoutButton" type="button" aria-pressed="false" title="Switch between scrolling ticker and static cards">Static view</button>
+        <button id="refreshButton" type="button">↻ Refresh</button>
+      </div>
+    </header>
+    <section class="ticker-viewport" aria-live="polite" aria-label="Team scores">
+      <div class="ticker-track" id="tickerTrack">
+        <div class="ticker-group" id="tickerPrimary">
+          <article class="game-card"><div class="team-logo bulls"><img src="https://a.espncdn.com/i/teamlogos/nba/500/chi.png" alt="Chicago Bulls logo"></div><div class="game-main"><div class="team-name">CHICAGO BULLS · NBA</div><div class="matchup">Loading scoreboard…</div><div class="detail">Connecting to score data</div></div></article>
+        </div>
+        <div class="ticker-group" id="tickerClone" aria-hidden="true"></div>
+      </div>
+    </section>
+    <footer class="ticker-bottom">
+      <span id="sourceStatus">Scores provided by ESPN data feeds</span>
+      <span>Auto-refresh: 60 sec</span>
+    </footer>
+  </main>
+
+  <script>
+    // ESPN's publicly reachable scoreboard feeds are undocumented and may change.
+    // No API key is required for the current implementation.
+    const TEAMS = [
+      {
+        key: "bulls", name: "CHICAGO BULLS", league: "NBA", abbreviation: "CHI",
+        path: "basketball/nba", className: "bulls", code: "CHI",
+        logo: "https://a.espncdn.com/i/teamlogos/nba/500/chi.png"
+      },
+      {
+        key: "cubs", name: "CHICAGO CUBS", league: "MLB", abbreviation: "CHC",
+        path: "baseball/mlb", className: "cubs", code: "CHC",
+        logo: "https://a.espncdn.com/i/teamlogos/mlb/500/chc.png"
+      },
+      {
+        key: "hawks", name: "CHICAGO BLACKHAWKS", league: "NHL", abbreviation: "CHI",
+        path: "hockey/nhl", className: "hawks", code: "CHI",
+        logo: "https://a.espncdn.com/i/teamlogos/nhl/500/chi.png"
+      }
+    ];
+    const API_ROOT = "https://site.api.espn.com/apis/site/v2/sports/";
+    const REFRESH_MS = 60_000;
+    const tickerShell = document.getElementById("tickerShell");
+    const primary = document.getElementById("tickerPrimary");
+    const clone = document.getElementById("tickerClone");
+    const updated = document.getElementById("updated");
+    const sourceStatus = document.getElementById("sourceStatus");
+    const refreshButton = document.getElementById("refreshButton");
+    const layoutButton = document.getElementById("layoutButton");
+    let staticView = false;
+    let refreshTimer = null;
+    let lastGoodCards = null;
+
+    const dateKey = (date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}${m}${d}`;
+    };
+    const addDays = (date, count) => {
+      const result = new Date(date);
+      result.setDate(result.getDate() + count);
+      return result;
+    };
+    const escapeText = (value) => String(value ?? "").replace(/[&<>"']/g, ch => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[ch]));
+    const localTime = (dateString) => {
+      const d = new Date(dateString);
+      if (Number.isNaN(d.getTime())) return "";
+      return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    };
+
+    async function fetchScoreboard(team) {
+      const start = dateKey(addDays(new Date(), -35));
+      const end = dateKey(addDays(new Date(), 21));
+      const url = `${API_ROOT}${team.path}/scoreboard?dates=${start}-${end}`;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${team.league} feed returned HTTP ${response.status}`);
+      return response.json();
+    }
+
+    function parseTeamEvent(team, event) {
+      const competition = event.competitions?.[0];
+      const competitors = competition?.competitors || [];
+      const ours = competitors.find(c => c.team?.abbreviation?.toUpperCase() === team.abbreviation);
+      if (!ours) return null;
+      const opponent = competitors.find(c => c !== ours);
+      if (!opponent) return null;
+
+      const status = event.status || competition.status || {};
+      const type = status.type || {};
+      const state = String(type.state || "").toLowerCase();
+      const completed = state === "post" || type.completed === true;
+      const inProgress = state === "in";
+      const opponentName = opponent.team?.shortDisplayName || opponent.team?.displayName || opponent.team?.name || "Opponent";
+      const prefix = ours.homeAway === "home" ? "vs" : "@";
+      const oursScore = ours.score?.displayValue ?? ours.score ?? "";
+      const opponentScore = opponent.score?.displayValue ?? opponent.score ?? "";
+      const date = event.date || competition.date;
+      let detail = type.shortDetail || type.detail || type.description || "";
+      if (inProgress) detail = `LIVE · ${detail || "In progress"}`;
+      else if (completed) detail = `FINAL${type.shortDetail ? ` · ${type.shortDetail}` : ""}`;
+      else detail = localTime(date) || "Upcoming game";
+
+      let scoreText = "—";
+      if (oursScore !== "" && opponentScore !== "") scoreText = `${oursScore}–${opponentScore}`;
+      let statusClass = inProgress ? "status-live" : completed ? "status-final" : "status-upcoming";
+      return {
+        team, eventId: String(event.id || ""), date: date || "",
+        time: new Date(date || 0).getTime(), completed, inProgress,
+        matchup: `${prefix} ${opponentName}`, detail, scoreText, statusClass,
+        oursScore: Number(ours.score?.value ?? ours.score),
+        opponentScore: Number(opponent.score?.value ?? opponent.score)
+      };
+    }
+
+    function chooseEvent(team, events) {
+      const now = Date.now();
+      const parsed = events.map(event => parseTeamEvent(team, event)).filter(Boolean);
+      // Prefer a live game, then the nearest upcoming game, then the latest final.
+      const live = parsed.find(game => game.inProgress);
+      if (live) return live;
+      const upcoming = parsed.filter(game => !game.completed && game.time >= now).sort((a, b) => a.time - b.time)[0];
+      if (upcoming) return upcoming;
+      const recentFinal = parsed.filter(game => game.completed).sort((a, b) => b.time - a.time)[0];
+      if (recentFinal) return recentFinal;
+      const future = parsed.filter(game => !game.completed).sort((a, b) => a.time - b.time)[0];
+      return future || null;
+    }
+
+    function cardHTML(game, team) {
+      const matchup = game ? game.matchup : "No game found";
+      const detail = game ? game.detail : "No scheduled game in the feed";
+      const score = game ? game.scoreText : "—";
+      const statusClass = game ? game.statusClass : "";
+      return `
+        <article class="game-card">
+          <div class="team-logo ${team.className}"><img src="${team.logo}" alt="${escapeText(team.name)} logo" loading="eager"></div>
+          <div class="game-main">
+            <div class="team-name">${escapeText(team.name)} · ${team.league}</div>
+            <div class="matchup">${escapeText(matchup)}</div>
+            <div class="detail ${statusClass}">${escapeText(detail)}</div>
+          </div>
+          <div class="score">${escapeText(score)}<small class="${statusClass}">${game?.inProgress ? "LIVE" : game?.completed ? "FINAL" : game ? "GAME" : ""}</small></div>
+        </article>`;
+    }
+
+    function render(cards) {
+      const html = cards.map((game, i) => cardHTML(game, TEAMS[i])).join("");
+      primary.innerHTML = html;
+      // A duplicate group makes the marquee loop smoothly. The clone is hidden from screen readers.
+      clone.innerHTML = html;
+      const hasAny = cards.some(Boolean);
+      tickerShell.classList.toggle("static", staticView);
+      layoutButton.textContent = staticView ? "Scrolling view" : "Static view";
+      layoutButton.setAttribute("aria-pressed", String(staticView));
+      if (!hasAny) sourceStatus.textContent = "No games returned by the feeds; try Refresh later.";
+    }
+
+    async function refreshScores() {
+      refreshButton.disabled = true;
+      updated.textContent = "Updating…";
+      sourceStatus.textContent = "Checking ESPN score feeds…";
+      try {
+        const results = await Promise.allSettled(TEAMS.map(fetchScoreboard));
+        const cards = results.map((result, index) => {
+          if (result.status !== "fulfilled") {
+            console.warn(`Could not load ${TEAMS[index].name}`, result.reason);
+            return null;
+          }
+          const events = result.value.events || [];
+          return chooseEvent(TEAMS[index], events);
+        });
+
+        const failed = results.filter(result => result.status === "rejected").length;
+        if (cards.every(card => card === null) && failed === TEAMS.length && lastGoodCards) {
+          render(lastGoodCards);
+          sourceStatus.textContent = "Connection failed — showing last received scores.";
+          updated.textContent = "Update failed";
+          return;
+        }
+        if (cards.every(card => card === null) && failed === TEAMS.length) {
+          render(cards);
+          sourceStatus.textContent = "Could not connect. Check your internet connection or try Refresh.";
+          updated.textContent = "Unavailable";
+          return;
+        }
+        // Keep the last known card for an individual feed failure, if available.
+        const merged = cards.map((card, index) =>
+          card || (lastGoodCards ? lastGoodCards[index] : null)
+        );
+        lastGoodCards = merged;
+        render(merged);
+        if (failed) {
+          sourceStatus.textContent = `${failed} feed(s) unavailable; remaining feeds updated.`;
+        } else {
+          sourceStatus.textContent = "Scores provided by ESPN data feeds · Not affiliated with ESPN or the leagues";
+        }
+        updated.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
+      } catch (error) {
+        console.error(error);
+        updated.textContent = "Update failed";
+        sourceStatus.textContent = "Unable to refresh scores. Check your connection and try again.";
+      } finally {
+        refreshButton.disabled = false;
+      }
+    }
+
+    refreshButton.addEventListener("click", refreshScores);
+    layoutButton.addEventListener("click", () => {
+      staticView = !staticView;
+      tickerShell.classList.toggle("static", staticView);
+      layoutButton.textContent = staticView ? "Scrolling view" : "Static view";
+      layoutButton.setAttribute("aria-pressed", String(staticView));
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refreshScores();
+    });
+
+    refreshScores();
+    refreshTimer = setInterval(() => {
+      if (document.visibilityState === "visible") refreshScores();
+    }, REFRESH_MS);
+  </script>
+</body>
+</html>

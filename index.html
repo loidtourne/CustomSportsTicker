@@ -256,14 +256,27 @@
       return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     };
 
-    async function fetchScoreboard(team) {
-      const start = dateKey(addDays(new Date(), -35));
-      const end = dateKey(addDays(new Date(), 21));
-      const url = `${API_ROOT}${team.path}/scoreboard?dates=${start}-${end}`;
-      const response = await fetch(url, { cache: "no-store" });
-      if (!response.ok) throw new Error(`${team.league} feed returned HTTP ${response.status}`);
-      return response.json();
-    }
+
+async function fetchScoreboard(team) {
+  // Request today's scoreboard only.
+  const today = dateKey(new Date());
+
+  const url =
+    `${API_ROOT}${team.path}/scoreboard?dates=${today}`;
+
+  const response = await fetch(url, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `${team.league} feed returned HTTP ${response.status}: ${url}`
+    );
+  }
+
+  return response.json();
+}
+
 
     function parseTeamEvent(team, event) {
       const competition = event.competitions?.[0];

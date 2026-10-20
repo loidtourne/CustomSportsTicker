@@ -275,6 +275,25 @@ async function fetchScoreboard(team) {
   return response.json();
 }
 
+async function fetchTeamSchedule(team) {
+  const teamCode = team.abbreviation.toLowerCase();
+
+  const url =
+    `${API_ROOT}${team.path}/teams/${teamCode}/schedule`;
+
+  const response = await fetch(url, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `${team.league} schedule returned HTTP ${response.status}`
+    );
+  }
+
+  return response.json();
+}   
+
     function parseTeamEvent(team, event) {
       const competition = event.competitions?.[0];
       const competitors = competition?.competitors || [];
@@ -358,15 +377,57 @@ async function fetchScoreboard(team) {
       updated.textContent = "Updating…";
       sourceStatus.textContent = "Checking ESPN score feeds…";
       try {
-        const results = await Promise.allSettled(TEAMS.map(fetchScoreboard));
-        const cards = results.map((result, index) => {
-          if (result.status !== "fulfilled") {
-            console.warn(`Could not load ${TEAMS[index].name}`, result.reason);
-            return null;
-          }
-          const events = result.value.events || [];
-          return chooseEvent(TEAMS[index], events);
-        });
+        
+const results = await Promise.allSettled(
+  TEAMS.map(async (team) => {
+    const [scoreboardResult, scheduleResult] =
+      await Promise.allSettled([
+        fetchScoreboard(team),
+        fetchTeamSchedule(team)
+      ]);
+
+    if (
+      scoreboardResult.status === "rejected" &&
+      scheduleResult.status === "rejected"
+    ) {
+      throw new Error(
+        `${team.name}: scoreboard and schedule both failed`
+      );
+    }
+
+    const events = [
+      ...(scoreboardResult.status === "fulfilled"
+        ? scoreboardResult.value.events || []
+        : []),
+      ...(scheduleResult.status === "fulfilled"
+        ? scheduleResult.value.events || []
+        : [])
+    ];
+
+    // Remove duplicate games returned by both endpoints.
+    const uniqueEvents = [
+      ...new Map(
+        events.map(event => [String(event.id), event])
+      ).values()
+    ];
+
+    return chooseEvent(team, uniqueEvents);
+  })
+);
+
+
+const cards = results.map((result, index) => {
+  if (result.status !== "fulfilled") {
+    console.warn(
+      `Could not load ${TEAMS[index].name}`,
+      result.reason
+    );
+    return null;
+  }
+
+  return result.value;
+});
+
 
         const failed = results.filter(result => result.status === "rejected").length;
         if (cards.every(card => card === null) && failed === TEAMS.length && lastGoodCards) {

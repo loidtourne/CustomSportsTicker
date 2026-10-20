@@ -357,6 +357,7 @@ async function fetchScoreboard(team) {
     }
 
 
+
 async function refreshScores() {
   refreshButton.disabled = true;
   updated.textContent = "Updating…";
@@ -376,16 +377,43 @@ async function refreshScores() {
         return null;
       }
 
-      // Keep the rest of your existing map callback code here.
-      // This section should process successful results.
+      const team = TEAMS[index];
+      const events = result.value.events || [];
+
+      const event = events.find(event =>
+        (event.competitions || []).some(comp =>
+          (comp.competitors || []).some(competitor =>
+            competitor.team &&
+            competitor.team.abbreviation === team.abbreviation
+          )
+        )
+      );
+
+      return event ? parseTeamEvent(team, event) : null;
     });
 
-    // Keep the rest of your existing try-block code here.
-    // This section should render cards and update the status.
+    render(cards);
+
+    const failed = results.filter(
+      result => result.status === "rejected"
+    ).length;
+
+    if (failed === TEAMS.length) {
+      sourceStatus.textContent =
+        "Could not connect to ESPN. Check the Console for details.";
+      updated.textContent = "Unavailable";
+    } else {
+      sourceStatus.textContent =
+        failed > 0
+          ? `${failed} feed(s) failed; some scores may be missing.`
+          : "Scores updated successfully.";
+
+      updated.textContent =
+        `Updated ${new Date().toLocaleTimeString()}`;
+    }
 
   } catch (error) {
     console.error("Error refreshing scores:", error);
-
     sourceStatus.textContent = `Error: ${error.message}`;
     updated.textContent = "Unavailable";
 
@@ -393,6 +421,7 @@ async function refreshScores() {
     refreshButton.disabled = false;
   }
 }
+
 
           const events = result.value.events || [];
           return chooseEvent(TEAMS[index], events);

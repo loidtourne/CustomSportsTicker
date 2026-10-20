@@ -16,7 +16,7 @@
       --cubs: #0e3386;
       --hawks: #cf0a2c;
       --bears: #c83803;
-      --speed: 42s;
+      --speed: 42s; /* Fallback; JavaScript calculates the actual duration */
     }
     * { box-sizing: border-box; }
     body {
@@ -268,6 +268,24 @@
     ];
     const API_ROOT = "https://site.api.espn.com/apis/site/v2/sports/";
     const REFRESH_MS = 60_000;
+    // Consistent scrolling speed across all tabs.
+    // Higher number = faster scrolling.
+    const TICKER_SPEED = 50; // pixels per second
+
+    function updateTickerSpeed() {
+      if (staticView) return;
+
+      const contentWidth = primary.scrollWidth;
+
+      if (!contentWidth) return;
+
+      const duration = contentWidth / TICKER_SPEED;
+
+      tickerShell.style.setProperty(
+        "--speed",
+        `${duration}s`
+      );
+    }
     const tickerShell = document.getElementById("tickerShell");
     const primary = document.getElementById("tickerPrimary");
     const clone = document.getElementById("tickerClone");
@@ -439,6 +457,7 @@
       primary.innerHTML = html;
       // A duplicate group makes the marquee loop smoothly. The clone is hidden from screen readers.
       clone.innerHTML = hasActiveTeams ? html : "";
+      requestAnimationFrame(updateTickerSpeed);
       tickerShell.classList.toggle("static", staticView);
       layoutButton.textContent = staticView ? "Scrolling view" : "Static view";
       layoutButton.setAttribute("aria-pressed", String(staticView));
@@ -641,6 +660,7 @@
         }
         primary.innerHTML = html;
         clone.innerHTML = html;
+        requestAnimationFrame(updateTickerSpeed);
         tickerShell.classList.toggle("static", staticView);
         updated.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
       } catch (error) {
@@ -682,6 +702,9 @@
     });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") refreshScores();
+    });
+    window.addEventListener("resize", () => {
+      requestAnimationFrame(updateTickerSpeed);
     });
 
     refreshScores();

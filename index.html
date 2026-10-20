@@ -506,7 +506,7 @@
       }
     }
 
-    function mlbGameCardHTML(event) {
+    function mlbGameCardHTML(event, displayLabel = "") {
       const competition = event.competitions?.[0];
       const competitors = competition?.competitors || [];
       const away = competitors.find(team => team.homeAway === "away") || competitors[0];
@@ -531,7 +531,7 @@
       return `<article class="game-card league-game-card">
         <div class="team-logo"><img src="${escapeText(awayLogo)}" alt="${escapeText(awayName)} logo" loading="lazy"></div>
         <div class="game-main">
-          <div class="team-name">MLB · ${escapeText(event.name || "Major League Baseball")}</div>
+          <div class="team-name">${escapeText(displayLabel || `MLB · ${event.name || "Major League Baseball"}`)}</div>
           <div class="matchup">${escapeText(awayName)} @ ${escapeText(homeName)}</div>
           <div class="detail ${statusClass}">${escapeText(detail)}</div>
         </div>
@@ -545,17 +545,46 @@
       updated.textContent = "Updating MLB…";
       sourceStatus.textContent = "Checking ESPN MLB scoreboard…";
       try {
-        const today = dateKey(new Date());
+        const now = new Date();
+        const today = dateKey(now);
         const response = await fetch(`${API_ROOT}baseball/mlb/scoreboard?dates=${today}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`MLB scoreboard returned HTTP ${response.status}`);
         const data = await response.json();
         const events = data.events || [];
-        let html = events.map(mlbGameCardHTML).filter(Boolean).join("");
+        let html = events.map(event => mlbGameCardHTML(event)).filter(Boolean).join("");
+        let statusMessage = `MLB · ${events.length} game(s) on today's scoreboard · ESPN data feed`;
+
+        // If there are no games today, walk backward one day at a time (ESPN's
+        // scoreboard can reject date ranges) until we find the most recent
+        // date with completed games.
         if (!html) {
-          html = `<article class="game-card empty-league-card"><div class="game-main"><div class="team-name">MLB · ALL TEAMS</div><div class="matchup">No MLB games scheduled today</div><div class="detail">Check back later or refresh for updates.</div></div></article>`;
-          sourceStatus.textContent = "No MLB games scheduled for today.";
+          for (let daysBack = 1; daysBack <= 14; daysBack++) {
+            const pastDate = addDays(now, -daysBack);
+            const pastKey = dateKey(pastDate);
+            const pastResponse = await fetch(`${API_ROOT}baseball/mlb/scoreboard?dates=${pastKey}`, { cache: "no-store" });
+            if (!pastResponse.ok) continue;
+            const pastData = await pastResponse.json();
+            const pastEvents = (pastData.events || []).filter(event => {
+              const competition = event.competitions?.[0];
+              const status = event.status?.type || competition?.status?.type || {};
+              return String(status.state || "").toLowerCase() === "post" || status.completed === true;
+            });
+            if (pastEvents.length) {
+              const playedDate = pastDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+              html = pastEvents.map(event => mlbGameCardHTML(event, `MLB · LAST PLAYED · ${playedDate}`)).filter(Boolean).join("");
+              if (html) {
+                statusMessage = `No MLB games today · Showing ${pastEvents.length} game(s) last played ${playedDate} · ESPN data feed`;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!html) {
+          html = `<article class="game-card empty-league-card"><div class="game-main"><div class="team-name">MLB · ALL TEAMS</div><div class="matchup">No MLB games scheduled today</div><div class="detail">No completed MLB games found in the last 14 days.</div></div></article>`;
+          sourceStatus.textContent = "No MLB games today, and no completed games were found in the last 14 days.";
         } else {
-          sourceStatus.textContent = `MLB · ${events.length} game(s) on today's scoreboard · ESPN data feed`;
+          sourceStatus.textContent = statusMessage;
         }
         primary.innerHTML = html;
         clone.innerHTML = html;

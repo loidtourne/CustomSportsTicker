@@ -571,30 +571,63 @@
         let statusMessage = `${league.label} · ${events.length} game(s) on today's scoreboard · ESPN data feed`;
 
         // ESPN date-range requests can return HTTP 400, so check previous dates individually.
-        // If today's scoreboard is empty, show all completed games from the most recent date found.
+        // NFL schedules are weekly: when today's scoreboard is empty, collect every completed
+        // game from the previous 7 days. Other leagues show the most recent date with games.
         if (!html) {
-          for (let daysBack = 1; daysBack <= 14; daysBack++) {
-            const pastDate = addDays(now, -daysBack);
-            const pastKey = dateKey(pastDate);
-            try {
-              const pastResponse = await fetch(`${API_ROOT}${league.path}/scoreboard?dates=${pastKey}`, { cache: "no-store" });
-              if (!pastResponse.ok) continue;
-              const pastData = await pastResponse.json();
-              const pastEvents = (pastData.events || []).filter(event => {
-                const competition = event.competitions?.[0];
-                const status = event.status?.type || competition?.status?.type || {};
-                return String(status.state || "").toLowerCase() === "post" || status.completed === true;
-              });
-              if (pastEvents.length) {
-                const playedDate = pastDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-                html = pastEvents.map(event => leagueGameCardHTML(event, league, `${league.label} · LAST PLAYED · ${playedDate}`)).filter(Boolean).join("");
-                if (html) {
-                  statusMessage = `No ${league.label} games today · Showing ${pastEvents.length} game(s) last played ${playedDate} · ESPN data feed`;
-                  break;
+          if (leagueKey === "nfl") {
+            const previousWeekEvents = [];
+            const seenEventIds = new Set();
+            for (let daysBack = 1; daysBack <= 7; daysBack++) {
+              const pastDate = addDays(now, -daysBack);
+              const pastKey = dateKey(pastDate);
+              try {
+                const pastResponse = await fetch(`${API_ROOT}${league.path}/scoreboard?dates=${pastKey}`, { cache: "no-store" });
+                if (!pastResponse.ok) continue;
+                const pastData = await pastResponse.json();
+                const completedEvents = (pastData.events || []).filter(event => {
+                  const competition = event.competitions?.[0];
+                  const status = event.status?.type || competition?.status?.type || {};
+                  return String(status.state || "").toLowerCase() === "post" || status.completed === true;
+                });
+                for (const event of completedEvents) {
+                  const id = event.id || `${event.name || "game"}-${pastKey}`;
+                  if (!seenEventIds.has(id)) {
+                    seenEventIds.add(id);
+                    previousWeekEvents.push(event);
+                  }
                 }
+              } catch (pastError) {
+                console.warn(`Could not check previous NFL scoreboard for ${pastKey}:`, pastError);
               }
-            } catch (pastError) {
-              console.warn(`Could not check previous ${league.label} scoreboard for ${pastKey}:`, pastError);
+            }
+            if (previousWeekEvents.length) {
+              html = previousWeekEvents.map(event => leagueGameCardHTML(event, league, "NFL · PREVIOUS WEEK")).filter(Boolean).join("");
+              if (html) statusMessage = `No NFL games today · Showing ${previousWeekEvents.length} completed game(s) from the previous 7 days · ESPN data feed`;
+            }
+          } else {
+            for (let daysBack = 1; daysBack <= 14; daysBack++) {
+              const pastDate = addDays(now, -daysBack);
+              const pastKey = dateKey(pastDate);
+              try {
+                const pastResponse = await fetch(`${API_ROOT}${league.path}/scoreboard?dates=${pastKey}`, { cache: "no-store" });
+                if (!pastResponse.ok) continue;
+                const pastData = await pastResponse.json();
+                const pastEvents = (pastData.events || []).filter(event => {
+                  const competition = event.competitions?.[0];
+                  const status = event.status?.type || competition?.status?.type || {};
+                  return String(status.state || "").toLowerCase() === "post" || status.completed === true;
+                });
+                if (pastEvents.length) {
+                  const playedDate = pastDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+                  html = pastEvents.map(event => leagueGameCardHTML(event, league, `${league.label} · LAST PLAYED · ${playedDate}`)).filter(Boolean).join("");
+                  if (html) {
+                    statusMessage = `No ${league.label} games today · Showing ${pastEvents.length} game(s) last played ${playedDate} · ESPN data feed`;
+                    break;
+                  }
+                }
+              } catch (pastError) {
+                console.warn(`Could not check previous ${league.label} scoreboard for ${pastKey}:`, pastError);
+              }
             }
           }
         }

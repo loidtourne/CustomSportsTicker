@@ -354,6 +354,13 @@
             console.warn(`Could not load ${TEAMS[index].name}`, result.reason);
             return null;
           }
+            } catch (error) {
+    console.error("Error refreshing scores:", error);
+
+    sourceStatus.textContent = `Error: ${error.message}`;
+    updated.textContent = "Unavailable";
+  }
+}
           const events = result.value.events || [];
           return chooseEvent(TEAMS[index], events);
         });

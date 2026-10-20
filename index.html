@@ -256,43 +256,47 @@
       return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     };
 
-async function fetchScoreboard(team) {
-  const today = dateKey(new Date());
+    async function fetchScoreboard(team) {
+      // Scoreboard requests use one date only; ESPN may reject date ranges.
+      const today = dateKey(new Date());
+      const url = `${API_ROOT}${team.path}/scoreboard?dates=${today}`;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${team.league} scoreboard returned HTTP ${response.status}`);
+      return response.json();
+    }
 
-  const url =
-    `${API_ROOT}${team.path}/scoreboard?dates=${today}`;
+    async function fetchTeamSchedule(team) {
+      // The team schedule provides upcoming games and recent results.
+      const teamCode = team.abbreviation.toLowerCase();
+      const url = `${API_ROOT}${team.path}/teams/${teamCode}/schedule`;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${team.league} schedule returned HTTP ${response.status}`);
+      return response.json();
+    }
 
-  const response = await fetch(url, {
-    cache: "no-store"
-  });
+    function seasonFallbackActive(team, date = new Date()) {
+      // Used only if schedule data is unavailable or has no usable dates.
+      const month = date.getMonth(); // January = 0
+      if (team.league === "NBA") return month >= 9 || month <= 5; // Oct–Jun
+      if (team.league === "MLB") return month >= 2 && month <= 10; // Mar–Nov
+      if (team.league === "NHL") return month >= 8 || month <= 5; // Sep–Jun
+      return true;
+    }
 
-  if (!response.ok) {
-    throw new Error(
-      `${team.league} feed returned HTTP ${response.status}: ${url}`
-    );
-  }
+    function isSeasonActive(team, events, now = Date.now()) {
+      const datedEvents = (events || [])
+        .map(event => new Date(event.date || event.competitions?.[0]?.date || NaN).getTime())
+        .filter(time => Number.isFinite(time));
 
-  return response.json();
-}
+      if (!datedEvents.length) return seasonFallbackActive(team);
 
-async function fetchTeamSchedule(team) {
-  const teamCode = team.abbreviation.toLowerCase();
-
-  const url =
-    `${API_ROOT}${team.path}/teams/${teamCode}/schedule`;
-
-  const response = await fetch(url, {
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `${team.league} schedule returned HTTP ${response.status}`
-    );
-  }
-
-  return response.json();
-}   
+      // Treat a team as in-season when its schedule has a game within the
+      // recent 21-day / upcoming 45-day window. This avoids showing teams
+      // throughout the long gap between seasons when the next schedule is published.
+      const recentWindow = 21 * 24 * 60 * 60 * 1000;
+      const futureWindow = 45 * 24 * 60 * 60 * 1000;
+      return datedEvents.some(time => time >= now - recentWindow && time <= now + futureWindow);
+    }
 
     function parseTeamEvent(team, event) {
       const competition = event.competitions?.[0];
@@ -361,15 +365,29 @@ async function fetchTeamSchedule(team) {
     }
 
     function render(cards) {
-      const html = cards.map((game, i) => cardHTML(game, TEAMS[i])).join("");
+      const visibleCards = cards
+        .map((entry, i) => ({ entry, team: TEAMS[i] }))
+        .filter(({ entry }) => !entry?.hidden);
+
+      const hasActiveTeams = visibleCards.length > 0;
+      let html = visibleCards
+        .map(({ entry, team }) => cardHTML(entry?.game ?? entry ?? null, team))
+        .join("");
+
+      if (!hasActiveTeams) {
+        html = `<article class="game-card off-season-card"><div class="game-main"><div class="team-name">CHICAGO SPORTS</div><div class="matchup">Off-season</div><div class="detail">No Chicago teams are currently in season.</div></div></article>`;
+        sourceStatus.textContent = "Off-season · No active Chicago team seasons";
+      }
+
       primary.innerHTML = html;
       // A duplicate group makes the marquee loop smoothly. The clone is hidden from screen readers.
-      clone.innerHTML = html;
-      const hasAny = cards.some(Boolean);
+      clone.innerHTML = hasActiveTeams ? html : "";
       tickerShell.classList.toggle("static", staticView);
       layoutButton.textContent = staticView ? "Scrolling view" : "Static view";
       layoutButton.setAttribute("aria-pressed", String(staticView));
-      if (!hasAny) sourceStatus.textContent = "No games returned by the feeds; try Refresh later.";
+      if (hasActiveTeams && !visibleCards.some(({ entry }) => entry && !entry.hidden && (entry.game ?? entry))) {
+        sourceStatus.textContent = "No games returned by the feeds; try Refresh later.";
+      }
     }
 
     async function refreshScores() {
@@ -377,87 +395,69 @@ async function fetchTeamSchedule(team) {
       updated.textContent = "Updating…";
       sourceStatus.textContent = "Checking ESPN score feeds…";
       try {
-        
-const results = await Promise.allSettled(
-  TEAMS.map(async (team) => {
-    const [scoreboardResult, scheduleResult] =
-      await Promise.allSettled([
-        fetchScoreboard(team),
-        fetchTeamSchedule(team)
-      ]);
+        const results = await Promise.allSettled(TEAMS.map(async team => {
+          const [scoreboardResult, scheduleResult] = await Promise.allSettled([
+            fetchScoreboard(team),
+            fetchTeamSchedule(team)
+          ]);
 
-    if (
-      scoreboardResult.status === "rejected" &&
-      scheduleResult.status === "rejected"
-    ) {
-      throw new Error(
-        `${team.name}: scoreboard and schedule both failed`
-      );
-    }
+          const scoreboardEvents = scoreboardResult.status === "fulfilled"
+            ? (scoreboardResult.value.events || [])
+            : [];
+          const scheduleEvents = scheduleResult.status === "fulfilled"
+            ? (scheduleResult.value.events || [])
+            : [];
+          const allEvents = [
+            ...scheduleEvents,
+            ...scoreboardEvents
+          ];
+          const uniqueEvents = [...new Map(
+            allEvents.filter(event => event && event.id != null)
+              .map(event => [String(event.id), event])
+          ).values()];
 
-    const events = [
-      ...(scoreboardResult.status === "fulfilled"
-        ? scoreboardResult.value.events || []
-        : []),
-      ...(scheduleResult.status === "fulfilled"
-        ? scheduleResult.value.events || []
-        : [])
-    ];
+          if (scoreboardResult.status === "rejected" && scheduleResult.status === "rejected") {
+            throw new Error(`${team.name}: scoreboard and schedule both failed`);
+          }
 
-    // Remove duplicate games returned by both endpoints.
-    const uniqueEvents = [
-      ...new Map(
-        events.map(event => [String(event.id), event])
-      ).values()
-    ];
+          const active = scheduleResult.status === "fulfilled"
+            ? isSeasonActive(team, scheduleEvents)
+            : seasonFallbackActive(team);
 
-    return chooseEvent(team, uniqueEvents);
-  })
-);
+          if (!active) {
+            return { hidden: true, game: null };
+          }
 
+          return { hidden: false, game: chooseEvent(team, uniqueEvents) };
+        }));
 
-const cards = results.map((result, index) => {
-  if (result.status !== "fulfilled") {
-    console.warn(
-      `Could not load ${TEAMS[index].name}`,
-      result.reason
-    );
-    return null;
-  }
-
-  return result.value;
-});
-
+        const cards = results.map((result, index) => {
+          if (result.status !== "fulfilled") {
+            console.warn(`Could not load ${TEAMS[index].name}`, result.reason);
+            return lastGoodCards ? lastGoodCards[index] || null : null;
+          }
+          return result.value;
+        });
 
         const failed = results.filter(result => result.status === "rejected").length;
-        if (cards.every(card => card === null) && failed === TEAMS.length && lastGoodCards) {
-          render(lastGoodCards);
-          sourceStatus.textContent = "Connection failed — showing last received scores.";
-          updated.textContent = "Update failed";
-          return;
-        }
-        if (cards.every(card => card === null) && failed === TEAMS.length) {
-          render(cards);
-          sourceStatus.textContent = "Could not connect. Check your internet connection or try Refresh.";
-          updated.textContent = "Unavailable";
-          return;
-        }
-        // Keep the last known card for an individual feed failure, if available.
-        const merged = cards.map((card, index) =>
-          card || (lastGoodCards ? lastGoodCards[index] : null)
-        );
-        lastGoodCards = merged;
-        render(merged);
-        if (failed) {
+        lastGoodCards = cards;
+        render(cards);
+
+        if (cards.every(card => card?.hidden) || cards.every(card => card == null)) {
+          sourceStatus.textContent = cards.every(card => card?.hidden)
+            ? "Off-season · No active Chicago team seasons"
+            : "Could not connect. Check your internet connection or try Refresh.";
+        } else if (failed) {
           sourceStatus.textContent = `${failed} feed(s) unavailable; remaining feeds updated.`;
-        } else {
+        } else if (!cards.every(card => card?.hidden)) {
           sourceStatus.textContent = "Scores provided by ESPN data feeds · Not affiliated with ESPN or the leagues";
         }
+
         updated.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
       } catch (error) {
-        console.error(error);
+        console.error("Error refreshing scores:", error);
         updated.textContent = "Update failed";
-        sourceStatus.textContent = "Unable to refresh scores. Check your connection and try again.";
+        sourceStatus.textContent = `Unable to refresh scores: ${error.message}`;
       } finally {
         refreshButton.disabled = false;
       }

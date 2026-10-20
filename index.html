@@ -256,27 +256,14 @@
       return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     };
 
-
-async function fetchScoreboard(team) {
-  // Request today's scoreboard only.
-  const today = dateKey(new Date());
-
-  const url =
-    `${API_ROOT}${team.path}/scoreboard?dates=${today}`;
-
-  const response = await fetch(url, {
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `${team.league} feed returned HTTP ${response.status}: ${url}`
-    );
-  }
-
-  return response.json();
-}
-
+    async function fetchScoreboard(team) {
+      const start = dateKey(addDays(new Date(), -35));
+      const end = dateKey(addDays(new Date(), 21));
+      const url = `${API_ROOT}${team.path}/scoreboard?dates=${start}-${end}`;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${team.league} feed returned HTTP ${response.status}`);
+      return response.json();
+    }
 
     function parseTeamEvent(team, event) {
       const competition = event.competitions?.[0];
@@ -356,73 +343,17 @@ async function fetchScoreboard(team) {
       if (!hasAny) sourceStatus.textContent = "No games returned by the feeds; try Refresh later.";
     }
 
-
-
-async function refreshScores() {
-  refreshButton.disabled = true;
-  updated.textContent = "Updating…";
-  sourceStatus.textContent = "Checking ESPN score feeds…";
-
-  try {
-    const results = await Promise.allSettled(
-      TEAMS.map(fetchScoreboard)
-    );
-
-    const cards = results.map((result, index) => {
-      if (result.status !== "fulfilled") {
-        console.warn(
-          `Could not load ${TEAMS[index].name}`,
-          result.reason
-        );
-        return null;
-      }
-
-      const team = TEAMS[index];
-      const events = result.value.events || [];
-
-      const event = events.find(event =>
-        (event.competitions || []).some(comp =>
-          (comp.competitors || []).some(competitor =>
-            competitor.team &&
-            competitor.team.abbreviation === team.abbreviation
-          )
-        )
-      );
-
-      return event ? parseTeamEvent(team, event) : null;
-    });
-
-    render(cards);
-
-    const failed = results.filter(
-      result => result.status === "rejected"
-    ).length;
-
-    if (failed === TEAMS.length) {
-      sourceStatus.textContent =
-        "Could not connect to ESPN. Check the Console for details.";
-      updated.textContent = "Unavailable";
-    } else {
-      sourceStatus.textContent =
-        failed > 0
-          ? `${failed} feed(s) failed; some scores may be missing.`
-          : "Scores updated successfully.";
-
-      updated.textContent =
-        `Updated ${new Date().toLocaleTimeString()}`;
-    }
-
-  } catch (error) {
-    console.error("Error refreshing scores:", error);
-    sourceStatus.textContent = `Error: ${error.message}`;
-    updated.textContent = "Unavailable";
-
-  } finally {
-    refreshButton.disabled = false;
-  }
-}
-
-
+    async function refreshScores() {
+      refreshButton.disabled = true;
+      updated.textContent = "Updating…";
+      sourceStatus.textContent = "Checking ESPN score feeds…";
+      try {
+        const results = await Promise.allSettled(TEAMS.map(fetchScoreboard));
+        const cards = results.map((result, index) => {
+          if (result.status !== "fulfilled") {
+            console.warn(`Could not load ${TEAMS[index].name}`, result.reason);
+            return null;
+          }
           const events = result.value.events || [];
           return chooseEvent(TEAMS[index], events);
         });

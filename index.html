@@ -122,10 +122,11 @@
     .team-logo {
       display: grid;
       place-items: center;
+      padding-top: 5px;
       flex: 0 0 46px;
       width: 46px;
       height: 46px;
-      overflow: visible;
+      overflow: hidden;
       border-radius: 10px;
       background: transparent;
     }
@@ -412,18 +413,30 @@
       };
     }
 
-    function chooseEvent(team, events) {
+    function chooseEvents(team, events) {
       const now = Date.now();
       const parsed = events.map(event => parseTeamEvent(team, event)).filter(Boolean);
-      // Prefer a live game, then the nearest upcoming game, then the latest final.
-      const live = parsed.find(game => game.inProgress);
-      if (live) return live;
-      const upcoming = parsed.filter(game => !game.completed && game.time >= now).sort((a, b) => a.time - b.time)[0];
-      if (upcoming) return upcoming;
-      const recentFinal = parsed.filter(game => game.completed).sort((a, b) => b.time - a.time)[0];
-      if (recentFinal) return recentFinal;
-      const future = parsed.filter(game => !game.completed).sort((a, b) => a.time - b.time)[0];
-      return future || null;
+
+      // Show entries in this order: live game, most recently completed game,
+      // then nearest upcoming game. This allows both recent and future games to appear.
+      const live = parsed.filter(game => game.inProgress)
+        .sort((a, b) => a.time - b.time);
+      const recentFinal = parsed.filter(game => game.completed)
+        .sort((a, b) => b.time - a.time)[0];
+      const upcoming = parsed.filter(game => !game.completed && !game.inProgress && game.time >= now)
+        .sort((a, b) => a.time - b.time)[0];
+
+      const selected = [...live];
+      if (recentFinal) selected.push(recentFinal);
+      if (upcoming) selected.push(upcoming);
+
+      // Keep a fallback if the feed has no games in those categories.
+      if (!selected.length) {
+        const future = parsed.filter(game => !game.completed)
+          .sort((a, b) => a.time - b.time)[0];
+        if (future) selected.push(future);
+      }
+      return selected;
     }
 
     function cardHTML(game, team) {
@@ -450,7 +463,12 @@
 
       const hasActiveTeams = visibleCards.length > 0;
       let html = visibleCards
-        .map(({ entry, team }) => cardHTML(entry?.game ?? entry ?? null, team))
+        .flatMap(({ entry, team }) => {
+          const games = Array.isArray(entry?.games)
+            ? entry.games
+            : [entry?.game ?? entry ?? null];
+          return games.map(game => cardHTML(game, team));
+        })
         .join("");
 
       if (!hasActiveTeams) {
@@ -508,7 +526,7 @@
             return { hidden: true, game: null };
           }
 
-          return { hidden: false, game: chooseEvent(team, uniqueEvents) };
+          return { hidden: false, games: chooseEvents(team, uniqueEvents) };
         }));
 
         const cards = results.map((result, index) => {
